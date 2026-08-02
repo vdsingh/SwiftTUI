@@ -58,6 +58,10 @@ public struct Button<Label: View>: View, PrimitiveView {
             }
         }
 
+        override func activateByClick() {
+            action()
+        }
+
         override var selectable: Bool { true }
 
         override func becomeFirstResponder() {

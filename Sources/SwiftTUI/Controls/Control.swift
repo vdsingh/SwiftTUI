@@ -114,6 +114,32 @@ class Control: LayerDrawing {
     func selectableElement(rightOf index: Int) -> Control? { parent?.selectableElement(rightOf: self.index) }
     func selectableElement(leftOf index: Int) -> Control? { parent?.selectableElement(leftOf: self.index) }
 
+    // MARK: - Hit testing
+
+    /// The deepest selectable control containing `point`, which is expressed in
+    /// this control's own coordinate space. This mirrors how `Layer.cell(at:)`
+    /// walks the tree to draw, so a click resolves to the same control the user
+    /// sees under the cursor. The last child is visited first because it is drawn
+    /// on top, matching the renderer when controls overlap.
+    func control(at point: Position) -> Control? {
+        for child in children.reversed() {
+            guard child.layer.frame.contains(point) else { continue }
+            if let hit = child.control(at: point - child.layer.frame.position) {
+                return hit
+            }
+        }
+        return selectable ? self : nil
+    }
+
+    // MARK: - Mouse activation
+
+    /// Performs this control's primary action after a click has made it the first
+    /// responder. The default does nothing beyond that focus, so clicking a text
+    /// field only places focus; controls with an action, such as buttons,
+    /// override this. Keeping it separate from `handleEvent` means a click never
+    /// submits a field the way pressing return would.
+    func activateByClick() {}
+
     // MARK: - Scrolling
 
     func scroll(to position: Position) {

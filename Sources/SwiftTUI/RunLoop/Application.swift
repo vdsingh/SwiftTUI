@@ -11,7 +11,13 @@ public class Application {
 
     private let runLoopType: RunLoopType
 
-    private var arrowKeyParser = ArrowKeyParser()
+    /// Where in an escape sequence the input reader currently is. Kept across
+    /// reads because a sequence can straddle two `availableData` chunks.
+    private enum InputState { case ground, escape, csi, mouse }
+    private var inputState: InputState = .ground
+    private var mouseParser = MouseParser()
+
+    private enum ArrowDirection { case up, down, left, right }
 
     private var invalidatedNodes: [Node] = []
     private var updateScheduled = false
@@ -87,6 +93,13 @@ public class Application {
         tcgetattr(STDIN_FILENO, &tattr)
         tattr.c_lflag &= ~tcflag_t(ECHO | ICANON)
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &tattr);
+        // Ask the terminal to report mouse clicks and wheel events, encoded with
+        // SGR (1006) so coordinates stay correct past column/row 223.
+        writeToTerminal("\u{1b}[?1000h\u{1b}[?1006h")
+    }
+
+    private func writeToTerminal(_ string: String) {
+        FileHandle.standardOutput.write(Data(string.utf8))
     }
 
     private func handleInput() {
@@ -97,39 +110,83 @@ public class Application {
         }
 
         for char in string {
-            if arrowKeyParser.parse(character: char) {
-                guard let key = arrowKeyParser.arrowKey else { continue }
-                arrowKeyParser.arrowKey = nil
-                if key == .down {
-                    if let next = window.firstResponder?.selectableElement(below: 0) {
-                        window.firstResponder?.resignFirstResponder()
-                        window.firstResponder = next
-                        window.firstResponder?.becomeFirstResponder()
-                    }
-                } else if key == .up {
-                    if let next = window.firstResponder?.selectableElement(above: 0) {
-                        window.firstResponder?.resignFirstResponder()
-                        window.firstResponder = next
-                        window.firstResponder?.becomeFirstResponder()
-                    }
-                } else if key == .right {
-                    if let next = window.firstResponder?.selectableElement(rightOf: 0) {
-                        window.firstResponder?.resignFirstResponder()
-                        window.firstResponder = next
-                        window.firstResponder?.becomeFirstResponder()
-                    }
-                } else if key == .left {
-                    if let next = window.firstResponder?.selectableElement(leftOf: 0) {
-                        window.firstResponder?.resignFirstResponder()
-                        window.firstResponder = next
-                        window.firstResponder?.becomeFirstResponder()
-                    }
+            switch inputState {
+            case .ground:
+                if char == "\u{1b}" {
+                    inputState = .escape
+                } else {
+                    handleKey(char)
                 }
-            } else if char == ASCII.EOT {
-                stop()
-            } else {
-                window.firstResponder?.handleEvent(char)
+            case .escape:
+                if char == "[" {
+                    inputState = .csi
+                } else {
+                    // A bare escape, or a sequence we don't recognise: treat the
+                    // following character as ordinary input, as before.
+                    inputState = .ground
+                    handleKey(char)
+                }
+            case .csi:
+                switch char {
+                case "A": moveFocus(.up); inputState = .ground
+                case "B": moveFocus(.down); inputState = .ground
+                case "C": moveFocus(.right); inputState = .ground
+                case "D": moveFocus(.left); inputState = .ground
+                case "<": inputState = .mouse
+                default: inputState = .ground
+                }
+            case .mouse:
+                switch mouseParser.parse(char) {
+                case .consuming:
+                    break
+                case .event(let event):
+                    handleMouse(event)
+                    inputState = .ground
+                case .ignored, .invalid:
+                    inputState = .ground
+                }
             }
+        }
+    }
+
+    private func handleKey(_ char: Character) {
+        if char == ASCII.EOT {
+            stop()
+        } else {
+            window.firstResponder?.handleEvent(char)
+        }
+    }
+
+    private func moveFocus(_ direction: ArrowDirection) {
+        let next: Control?
+        switch direction {
+        case .up: next = window.firstResponder?.selectableElement(above: 0)
+        case .down: next = window.firstResponder?.selectableElement(below: 0)
+        case .right: next = window.firstResponder?.selectableElement(rightOf: 0)
+        case .left: next = window.firstResponder?.selectableElement(leftOf: 0)
+        }
+        guard let next else { return }
+        window.firstResponder?.resignFirstResponder()
+        window.firstResponder = next
+        window.firstResponder?.becomeFirstResponder()
+    }
+
+    private func handleMouse(_ event: MouseParser.Event) {
+        switch event {
+        case .leftClick(let column, let line):
+            // The terminal reports 1-based cells; the control tree is 0-based.
+            let point = Position(column: Extended(column - 1), line: Extended(line - 1))
+            guard let target = control.control(at: point) else { return }
+            if window.firstResponder !== target {
+                window.firstResponder?.resignFirstResponder()
+                window.firstResponder = target
+                target.becomeFirstResponder()
+            }
+            target.activateByClick()
+        case .scrollUp:
+            moveFocus(.up)
+        case .scrollDown:
+            moveFocus(.down)
         }
     }
 
@@ -182,6 +239,9 @@ public class Application {
 
     /// Fix for: https://github.com/rensbreur/SwiftTUI/issues/25
     private func resetInputMode() {
+        // Stop the terminal reporting mouse events, so the shell that regains the
+        // terminal is not fed escape sequences on every click.
+        writeToTerminal("\u{1b}[?1006l\u{1b}[?1000l")
         // Reset ECHO and ICANON values:
         var tattr = termios()
         tcgetattr(STDIN_FILENO, &tattr)
