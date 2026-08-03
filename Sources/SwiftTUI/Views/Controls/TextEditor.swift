@@ -38,6 +38,8 @@ public struct TextEditor: View, PrimitiveView {
         self.onRun = onRun
     }
 
+    static var size: Int? { 1 }
+
     func buildNode(_ node: Node) {
         setupEnvironmentProperties(node: node)
         node.control = TextEditorControl(
