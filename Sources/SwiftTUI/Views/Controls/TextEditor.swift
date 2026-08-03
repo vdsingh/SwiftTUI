@@ -114,6 +114,19 @@ public struct TextEditor: View, PrimitiveView {
             return moved
         }
 
+        override func handleKeyCommand(_ command: KeyCommand) -> Bool {
+            switch command {
+            case .wordLeft: buffer.moveWordLeft(); refresh()
+            case .wordRight: buffer.moveWordRight(); refresh()
+            case .lineStart: buffer.moveToLineStart(); refresh()
+            case .lineEnd: buffer.moveToLineEnd(); refresh()
+            case .documentStart: buffer.moveToDocumentStart(); refresh()
+            case .documentEnd: buffer.moveToDocumentEnd(); refresh()
+            case .deleteWordBackward: buffer.deleteWordBackward(); commit()
+            }
+            return true
+        }
+
         override func handleEvent(_ char: Character) {
             switch char {
             case "\u{12}": // Ctrl-R

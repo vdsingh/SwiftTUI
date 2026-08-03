@@ -73,4 +73,48 @@ final class EditorBufferTests: XCTestCase {
         XCTAssertTrue(EditorBuffer("").isEmpty)
         XCTAssertFalse(EditorBuffer("x").isEmpty)
     }
+
+    // MARK: - Word movement / deletion
+
+    func testMoveWordLeftAndRight() {
+        var buffer = EditorBuffer("select id_1, email")
+        // cursor at end (col 18)
+        buffer.moveWordLeft()
+        XCTAssertEqual(buffer.cursorColumn, 13)          // start of "email"
+        buffer.moveWordLeft()
+        XCTAssertEqual(buffer.cursorColumn, 7)           // start of "id_1"
+        buffer.moveWordLeft()
+        XCTAssertEqual(buffer.cursorColumn, 0)           // start of "select"
+        buffer.moveWordRight()
+        XCTAssertEqual(buffer.cursorColumn, 6)           // end of "select"
+        buffer.moveWordRight()
+        XCTAssertEqual(buffer.cursorColumn, 11)          // end of "id_1"
+    }
+
+    func testDeleteWordBackward() {
+        var buffer = EditorBuffer("select email")
+        buffer.deleteWordBackward()
+        XCTAssertEqual(buffer.text, "select ")
+        XCTAssertEqual(buffer.cursorColumn, 7)
+        buffer.deleteWordBackward()
+        XCTAssertEqual(buffer.text, "")
+    }
+
+    func testWordLeftCrossesLineAtColumnZero() {
+        var buffer = EditorBuffer("ab\ncd")
+        buffer.moveToLineStart()          // start of "cd"
+        XCTAssertTrue(buffer.moveWordLeft())
+        XCTAssertEqual(buffer.cursorLine, 0)
+        XCTAssertEqual(buffer.cursorColumn, 2)   // end of "ab"
+    }
+
+    func testDocumentStartAndEnd() {
+        var buffer = EditorBuffer("one\ntwo\nthree")
+        buffer.moveToDocumentStart()
+        XCTAssertEqual(buffer.cursorLine, 0)
+        XCTAssertEqual(buffer.cursorColumn, 0)
+        buffer.moveToDocumentEnd()
+        XCTAssertEqual(buffer.cursorLine, 2)
+        XCTAssertEqual(buffer.cursorColumn, 5)
+    }
 }

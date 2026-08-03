@@ -95,4 +95,49 @@ struct EditorBuffer: Equatable {
 
     mutating func moveToLineStart() { cursorColumn = 0 }
     mutating func moveToLineEnd() { cursorColumn = lines[cursorLine].count }
+
+    mutating func moveToDocumentStart() { cursorLine = 0; cursorColumn = 0 }
+    mutating func moveToDocumentEnd() {
+        cursorLine = lines.count - 1
+        cursorColumn = lines[cursorLine].count
+    }
+
+    // MARK: - Word-wise movement and deletion
+
+    private func isWordCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
+
+    /// Moves left to the start of the current or previous word (Option/Ctrl-Left).
+    @discardableResult mutating func moveWordLeft() -> Bool {
+        if cursorColumn == 0 { return moveLeft() } // cross to the previous line
+        let chars = Array(lines[cursorLine])
+        var col = cursorColumn
+        while col > 0, !isWordCharacter(chars[col - 1]) { col -= 1 }
+        while col > 0, isWordCharacter(chars[col - 1]) { col -= 1 }
+        cursorColumn = col
+        return true
+    }
+
+    /// Moves right past the end of the current or next word (Option/Ctrl-Right).
+    @discardableResult mutating func moveWordRight() -> Bool {
+        let chars = Array(lines[cursorLine])
+        if cursorColumn >= chars.count { return moveRight() } // cross to the next line
+        var col = cursorColumn
+        while col < chars.count, !isWordCharacter(chars[col]) { col += 1 }
+        while col < chars.count, isWordCharacter(chars[col]) { col += 1 }
+        cursorColumn = col
+        return true
+    }
+
+    /// Deletes from the cursor back to the start of the word (Option-Backspace).
+    mutating func deleteWordBackward() {
+        if cursorColumn == 0 { backspace(); return } // join with the previous line
+        let chars = Array(lines[cursorLine])
+        var col = cursorColumn
+        while col > 0, !isWordCharacter(chars[col - 1]) { col -= 1 }
+        while col > 0, isWordCharacter(chars[col - 1]) { col -= 1 }
+        var updated = chars
+        updated.removeSubrange(col ..< cursorColumn)
+        lines[cursorLine] = String(updated)
+        cursorColumn = col
+    }
 }

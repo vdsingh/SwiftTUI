@@ -158,6 +158,10 @@ class Control: LayerDrawing {
     /// can still arrow out of the control.
     func handleArrowKey(_ direction: ArrowKeyDirection) -> Bool { false }
 
+    /// Handles an editing command decoded from a modified key (Option/Ctrl/Cmd +
+    /// arrow, Home/End, Option-Backspace, …). Returns whether it was consumed.
+    func handleKeyCommand(_ command: KeyCommand) -> Bool { false }
+
     // MARK: - Scrolling
 
     func scroll(to position: Position) {
@@ -170,4 +174,14 @@ class Control: LayerDrawing {
 /// that move a cursor.
 enum ArrowKeyDirection {
     case up, down, left, right
+}
+
+/// An editing command decoded from a modified key press, delivered to whichever
+/// control is focused (a text editor). Terminals encode these very differently,
+/// so the run loop maps the many escape sequences onto this small set.
+enum KeyCommand {
+    case wordLeft, wordRight
+    case lineStart, lineEnd
+    case documentStart, documentEnd
+    case deleteWordBackward
 }

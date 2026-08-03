@@ -13,9 +13,15 @@ public class Application {
 
     /// Where in an escape sequence the input reader currently is. Kept across
     /// reads because a sequence can straddle two `availableData` chunks.
-    private enum InputState { case ground, escape, csi, mouse }
+    private enum InputState { case ground, escape, csi, ss3, mouse }
     private var inputState: InputState = .ground
+    private var csiBuffer = ""
     private var mouseParser = MouseParser()
+
+    /// An app-level hook that sees each ordinary key before it reaches the focused
+    /// control. Return true to consume it. swsql uses this to run the query on
+    /// Ctrl-R from anywhere, not only while the editor is focused.
+    public var keyHandler: ((Character) -> Bool)?
 
     private var invalidatedNodes: [Node] = []
     private var updateScheduled = false
@@ -116,23 +122,26 @@ public class Application {
                     handleKey(char)
                 }
             case .escape:
-                if char == "[" {
-                    inputState = .csi
-                } else {
-                    // A bare escape, or a sequence we don't recognise: treat the
-                    // following character as ordinary input, as before.
+                switch char {
+                case "[": inputState = .csi; csiBuffer = ""
+                case "O": inputState = .ss3
+                default:
+                    // ESC followed by a character is a Meta/Alt combination.
                     inputState = .ground
-                    handleKey(char)
+                    handleMeta(char)
                 }
             case .csi:
-                switch char {
-                case "A": deliverArrow(.up); inputState = .ground
-                case "B": deliverArrow(.down); inputState = .ground
-                case "C": deliverArrow(.right); inputState = .ground
-                case "D": deliverArrow(.left); inputState = .ground
-                case "<": inputState = .mouse
-                default: inputState = .ground
+                if char == "<", csiBuffer.isEmpty {
+                    inputState = .mouse // SGR mouse report: ESC [ < …
+                } else if char.isNumber || char == ";" {
+                    csiBuffer.append(char)
+                } else {
+                    dispatchCSI(parameters: csiBuffer, final: char)
+                    inputState = .ground
                 }
+            case .ss3:
+                dispatchSS3(char)
+                inputState = .ground
             case .mouse:
                 switch mouseParser.parse(char) {
                 case .consuming:
@@ -148,11 +157,79 @@ public class Application {
     }
 
     private func handleKey(_ char: Character) {
-        if char == ASCII.EOT {
+        if let keyHandler, keyHandler(char) { return }
+        switch char {
+        case ASCII.EOT:
             stop()
-        } else {
+        case "\u{17}": // Ctrl-W: delete the previous word
+            deliverCommand(.deleteWordBackward)
+        default:
             window.firstResponder?.handleEvent(char)
         }
+    }
+
+    /// ESC-prefixed (Meta/Alt) keys: word movement and word delete.
+    private func handleMeta(_ char: Character) {
+        switch char {
+        case "b", "B": deliverCommand(.wordLeft)
+        case "f", "F": deliverCommand(.wordRight)
+        case ASCII.DEL, "\u{08}": deliverCommand(.deleteWordBackward)
+        default: window.firstResponder?.handleEvent(char)
+        }
+    }
+
+    /// SS3 sequences (ESC O …): arrows in application mode, and Home/End.
+    private func dispatchSS3(_ char: Character) {
+        switch char {
+        case "A": deliverArrow(.up)
+        case "B": deliverArrow(.down)
+        case "C": deliverArrow(.right)
+        case "D": deliverArrow(.left)
+        case "H": deliverCommand(.lineStart)
+        case "F": deliverCommand(.lineEnd)
+        default: break
+        }
+    }
+
+    /// A complete CSI sequence: `parameters` are the digits/semicolons between
+    /// `ESC [` and the final byte. Handles arrows (plain and modified), Home/End,
+    /// and the `~`-terminated Home/End/Delete forms across terminals.
+    private func dispatchCSI(parameters: String, final: Character) {
+        let fields = parameters.split(separator: ";").map { Int($0) ?? 0 }
+        let modifier = fields.count >= 2 ? fields[1] : 1
+        // xterm modifier encoding: value - 1 is a bitmask (1 Shift, 2 Alt, 4 Ctrl, 8 Meta).
+        let mask = max(0, modifier - 1)
+        let alt = mask & 2 != 0
+        let ctrl = mask & 4 != 0
+        let meta = mask & 8 != 0
+        let word = alt || ctrl   // Option or Control moves by word
+        let line = meta          // Command (remapped) or explicit Meta moves by line
+
+        switch final {
+        case "A": meta ? deliverCommand(.documentStart) : deliverArrow(.up)
+        case "B": meta ? deliverCommand(.documentEnd) : deliverArrow(.down)
+        case "C":
+            if line { deliverCommand(.lineEnd) }
+            else if word { deliverCommand(.wordRight) }
+            else { deliverArrow(.right) }
+        case "D":
+            if line { deliverCommand(.lineStart) }
+            else if word { deliverCommand(.wordLeft) }
+            else { deliverArrow(.left) }
+        case "H": deliverCommand(ctrl ? .documentStart : .lineStart)   // Home / Ctrl-Home
+        case "F": deliverCommand(ctrl ? .documentEnd : .lineEnd)       // End / Ctrl-End
+        case "~":
+            switch fields.first ?? 0 {
+            case 1, 7: deliverCommand(.lineStart)   // Home
+            case 4, 8: deliverCommand(.lineEnd)     // End
+            default: break                          // e.g. 3 = forward Delete (unsupported)
+            }
+        default: break
+        }
+    }
+
+    private func deliverCommand(_ command: KeyCommand) {
+        _ = window.firstResponder?.handleKeyCommand(command)
     }
 
     /// Sends an arrow key to the focused control if it consumes arrows (a text
