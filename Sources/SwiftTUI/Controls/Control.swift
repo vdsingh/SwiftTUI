@@ -116,7 +116,14 @@ class Control: LayerDrawing {
 
     // MARK: - Hit testing
 
-    /// The deepest selectable control containing `point`, which is expressed in
+    /// Whether a mouse click can land on this control. Defaults to `selectable`,
+    /// so keyboard-navigable controls are also clickable. A control can be
+    /// clickable without being selectable (see `.onClick`): it responds to a click
+    /// but is skipped by keyboard focus, which suits header and toolbar affordances
+    /// that should not join the tab order or take the initial focus.
+    var clickable: Bool { selectable }
+
+    /// The deepest clickable control containing `point`, which is expressed in
     /// this control's own coordinate space. This mirrors how `Layer.cell(at:)`
     /// walks the tree to draw, so a click resolves to the same control the user
     /// sees under the cursor. The last child is visited first because it is drawn
@@ -128,16 +135,15 @@ class Control: LayerDrawing {
                 return hit
             }
         }
-        return selectable ? self : nil
+        return clickable ? self : nil
     }
 
     // MARK: - Mouse activation
 
-    /// Performs this control's primary action after a click has made it the first
-    /// responder. The default does nothing beyond that focus, so clicking a text
-    /// field only places focus; controls with an action, such as buttons,
-    /// override this. Keeping it separate from `handleEvent` means a click never
-    /// submits a field the way pressing return would.
+    /// Performs this control's primary action after it is clicked. The default
+    /// does nothing, so clicking a text field only places focus; controls with an
+    /// action, such as buttons, override this. Keeping it separate from
+    /// `handleEvent` means a click never submits a field the way return would.
     func activateByClick() {}
 
     // MARK: - Scrolling

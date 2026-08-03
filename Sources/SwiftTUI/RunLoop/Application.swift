@@ -177,7 +177,9 @@ public class Application {
             // The terminal reports 1-based cells; the control tree is 0-based.
             let point = Position(column: Extended(column - 1), line: Extended(line - 1))
             guard let target = control.control(at: point) else { return }
-            if window.firstResponder !== target {
+            // A clickable-but-not-selectable control (e.g. `.onClick`) fires its
+            // action without taking focus, so it never disturbs keyboard navigation.
+            if target.selectable, window.firstResponder !== target {
                 window.firstResponder?.resignFirstResponder()
                 window.firstResponder = target
                 target.becomeFirstResponder()
