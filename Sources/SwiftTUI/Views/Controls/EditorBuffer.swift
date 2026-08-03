@@ -128,6 +128,22 @@ struct EditorBuffer: Equatable {
         return true
     }
 
+    /// Replaces the identifier immediately before the cursor with `replacement`,
+    /// leaving the cursor after it. Used to accept a completion.
+    mutating func replaceCurrentWord(with replacement: String) {
+        let chars = Array(lines[cursorLine])
+        var start = cursorColumn
+        while start > 0, isWordCharacter(chars[start - 1]) { start -= 1 }
+        var updated = chars
+        updated.replaceSubrange(start ..< cursorColumn, with: Array(replacement))
+        lines[cursorLine] = String(updated)
+        cursorColumn = start + replacement.count
+    }
+
+    /// The identifier text and everything on the current line up to the cursor,
+    /// which is what completion is computed from.
+    var currentLinePrefix: String { String(Array(lines[cursorLine]).prefix(cursorColumn)) }
+
     /// Deletes from the cursor back to the start of the word (Option-Backspace).
     mutating func deleteWordBackward() {
         if cursorColumn == 0 { backspace(); return } // join with the previous line

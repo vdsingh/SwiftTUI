@@ -108,6 +108,21 @@ final class EditorBufferTests: XCTestCase {
         XCTAssertEqual(buffer.cursorColumn, 2)   // end of "ab"
     }
 
+    func testReplaceCurrentWord() {
+        var buffer = EditorBuffer("select * from us")
+        buffer.replaceCurrentWord(with: "users")
+        XCTAssertEqual(buffer.text, "select * from users")
+        XCTAssertEqual(buffer.cursorColumn, 19)
+    }
+
+    func testCurrentLinePrefix() {
+        var buffer = EditorBuffer("select id\nfrom users")
+        buffer.moveUp()                 // onto line 0
+        buffer.moveToLineStart()
+        buffer.moveWordRight()          // after "select"
+        XCTAssertEqual(buffer.currentLinePrefix, "select")
+    }
+
     func testDocumentStartAndEnd() {
         var buffer = EditorBuffer("one\ntwo\nthree")
         buffer.moveToDocumentStart()

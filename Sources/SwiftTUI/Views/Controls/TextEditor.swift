@@ -10,6 +10,8 @@ public final class EditorDocument {
     public var text: String
     /// Wired by the editor control so `set(_:)` can reload the on-screen buffer.
     var apply: ((String) -> Void)?
+    /// Wired by the editor control so `complete(with:)` can replace the current word.
+    var insertCompletion: ((String) -> Void)?
 
     public init(text: String = "") {
         self.text = text
@@ -19,6 +21,18 @@ public final class EditorDocument {
         text = newText
         apply?(newText)
     }
+
+    /// Replaces the identifier under the cursor with `replacement` - used to accept
+    /// a completion without disturbing the rest of the text or the cursor.
+    public func complete(with replacement: String) {
+        insertCompletion?(replacement)
+    }
+}
+
+/// A key the editor forwards to a completion menu when one is open, instead of
+/// handling it itself.
+public enum TextEditorMenuKey {
+    case up, down, accept, dismiss
 }
 
 /// A multi-line, editable text area with a movable cursor. Arrow keys move the
@@ -29,13 +43,23 @@ public struct TextEditor: View, PrimitiveView {
     let document: EditorDocument
     let placeholder: String?
     let onRun: () -> Void
+    let onChange: (String) -> Void
+    let menuKey: (TextEditorMenuKey) -> Bool
 
     @Environment(\.placeholderColor) private var placeholderColor: Color
 
-    public init(document: EditorDocument, placeholder: String? = nil, onRun: @escaping () -> Void = {}) {
+    public init(
+        document: EditorDocument,
+        placeholder: String? = nil,
+        onRun: @escaping () -> Void = {},
+        onChange: @escaping (String) -> Void = { _ in },
+        menuKey: @escaping (TextEditorMenuKey) -> Bool = { _ in false }
+    ) {
         self.document = document
         self.placeholder = placeholder
         self.onRun = onRun
+        self.onChange = onChange
+        self.menuKey = menuKey
     }
 
     static var size: Int? { 1 }
@@ -46,7 +70,9 @@ public struct TextEditor: View, PrimitiveView {
             document: document,
             placeholder: placeholder ?? "",
             placeholderColor: placeholderColor,
-            onRun: onRun
+            onRun: onRun,
+            onChange: onChange,
+            menuKey: menuKey
         )
     }
 
@@ -55,6 +81,8 @@ public struct TextEditor: View, PrimitiveView {
         node.view = self
         let control = node.control as! TextEditorControl
         control.onRun = onRun
+        control.onChange = onChange
+        control.menuKey = menuKey
         control.placeholderColor = placeholderColor
     }
 
@@ -64,21 +92,30 @@ public struct TextEditor: View, PrimitiveView {
         var placeholder: String
         var placeholderColor: Color
         var onRun: () -> Void
+        var onChange: (String) -> Void
+        var menuKey: (TextEditorMenuKey) -> Bool
 
         private var scrollTop = 0
         private var scrollLeft = 0
 
-        init(document: EditorDocument, placeholder: String, placeholderColor: Color, onRun: @escaping () -> Void) {
+        init(document: EditorDocument, placeholder: String, placeholderColor: Color, onRun: @escaping () -> Void, onChange: @escaping (String) -> Void, menuKey: @escaping (TextEditorMenuKey) -> Bool) {
             self.document = document
             self.buffer = EditorBuffer(document.text)
             self.placeholder = placeholder
             self.placeholderColor = placeholderColor
             self.onRun = onRun
+            self.onChange = onChange
+            self.menuKey = menuKey
             super.init()
             document.apply = { [weak self] text in
                 guard let self else { return }
                 self.buffer.setText(text)
                 self.refresh()
+            }
+            document.insertCompletion = { [weak self] replacement in
+                guard let self else { return }
+                self.buffer.replaceCurrentWord(with: replacement)
+                self.commit()
             }
         }
 
@@ -103,6 +140,9 @@ public struct TextEditor: View, PrimitiveView {
         }
 
         override func handleArrowKey(_ direction: ArrowKeyDirection) -> Bool {
+            // Up/Down navigate an open completion menu instead of the cursor.
+            if direction == .up, menuKey(.up) { return true }
+            if direction == .down, menuKey(.down) { return true }
             let moved: Bool
             switch direction {
             case .up: moved = buffer.moveUp()
@@ -135,7 +175,12 @@ public struct TextEditor: View, PrimitiveView {
                 buffer.moveToLineStart(); refresh()
             case "\u{05}": // Ctrl-E: end of line
                 buffer.moveToLineEnd(); refresh()
+            case "\t": // Tab accepts an open completion; otherwise ignored
+                _ = menuKey(.accept)
+            case "\u{1b}": // Escape dismisses an open completion menu
+                _ = menuKey(.dismiss)
             case "\n", "\r":
+                if menuKey(.accept) { return } // accept a completion instead of a newline
                 buffer.insertNewline(); commit()
             case ASCII.DEL, "\u{08}": // Delete / Backspace
                 buffer.backspace(); commit()
@@ -151,9 +196,11 @@ public struct TextEditor: View, PrimitiveView {
             refresh()
         }
 
-        /// After a cursor move or external set: keep the cursor on screen and repaint.
+        /// After a cursor move or external set: keep the cursor on screen, tell the
+        /// app what is under the cursor (for completion), then repaint.
         private func refresh() {
             ensureCursorVisible()
+            onChange(buffer.currentLinePrefix)
             layer.invalidate()
         }
 

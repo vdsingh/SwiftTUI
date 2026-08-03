@@ -154,6 +154,14 @@ public class Application {
                 }
             }
         }
+
+        // A lone Escape keypress arrives as ESC with nothing following it in this
+        // read (a real escape sequence arrives whole), so a still-dangling escape
+        // is the Esc key - deliver it to the focused control.
+        if inputState == .escape {
+            inputState = .ground
+            window.firstResponder?.handleEvent("\u{1b}")
+        }
     }
 
     private func handleKey(_ char: Character) {
