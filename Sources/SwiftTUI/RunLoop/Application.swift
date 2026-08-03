@@ -157,10 +157,14 @@ public class Application {
 
         // A lone Escape keypress arrives as ESC with nothing following it in this
         // read (a real escape sequence arrives whole), so a still-dangling escape
-        // is the Esc key - deliver it to the focused control.
+        // is the Esc key. The app-level handler sees it first (to use it as a
+        // global "back"); otherwise it goes to the focused control.
         if inputState == .escape {
             inputState = .ground
-            window.firstResponder?.handleEvent("\u{1b}")
+            let escape: Character = "\u{1b}"
+            if keyHandler?(escape) != true {
+                window.firstResponder?.handleEvent(escape)
+            }
         }
     }
 
