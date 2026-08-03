@@ -17,8 +17,6 @@ public class Application {
     private var inputState: InputState = .ground
     private var mouseParser = MouseParser()
 
-    private enum ArrowDirection { case up, down, left, right }
-
     private var invalidatedNodes: [Node] = []
     private var updateScheduled = false
 
@@ -128,10 +126,10 @@ public class Application {
                 }
             case .csi:
                 switch char {
-                case "A": moveFocus(.up); inputState = .ground
-                case "B": moveFocus(.down); inputState = .ground
-                case "C": moveFocus(.right); inputState = .ground
-                case "D": moveFocus(.left); inputState = .ground
+                case "A": deliverArrow(.up); inputState = .ground
+                case "B": deliverArrow(.down); inputState = .ground
+                case "C": deliverArrow(.right); inputState = .ground
+                case "D": deliverArrow(.left); inputState = .ground
                 case "<": inputState = .mouse
                 default: inputState = .ground
                 }
@@ -157,7 +155,18 @@ public class Application {
         }
     }
 
-    private func moveFocus(_ direction: ArrowDirection) {
+    /// Sends an arrow key to the focused control if it consumes arrows (a text
+    /// editor moving its cursor); otherwise, or when that control declines the key
+    /// at a boundary, moves focus.
+    private func deliverArrow(_ direction: ArrowKeyDirection) {
+        if let responder = window.firstResponder, responder.handlesArrowKeys,
+           responder.handleArrowKey(direction) {
+            return
+        }
+        moveFocus(direction)
+    }
+
+    private func moveFocus(_ direction: ArrowKeyDirection) {
         let next: Control?
         switch direction {
         case .up: next = window.firstResponder?.selectableElement(above: 0)

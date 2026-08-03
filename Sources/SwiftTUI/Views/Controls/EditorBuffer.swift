@@ -1,0 +1,98 @@
+import Foundation
+
+/// The editable text of a `TextEditor`, as lines with a cursor. Kept as a pure
+/// value type so the editing logic can be unit-tested without a terminal.
+///
+/// Columns are counted in `Character`s, matching how the renderer draws cells.
+struct EditorBuffer: Equatable {
+    private(set) var lines: [String]
+    private(set) var cursorLine: Int
+    private(set) var cursorColumn: Int
+
+    init(_ text: String = "") {
+        lines = [""]
+        cursorLine = 0
+        cursorColumn = 0
+        setText(text)
+    }
+
+    /// The whole document as one string, lines joined by newlines.
+    var text: String { lines.joined(separator: "\n") }
+
+    var isEmpty: Bool { lines.count == 1 && lines[0].isEmpty }
+
+    /// Replaces all text and puts the cursor at the very end. Used when text is
+    /// set from outside the editor (formatting, recalling a statement).
+    mutating func setText(_ text: String) {
+        lines = text.isEmpty ? [""] : text.components(separatedBy: "\n")
+        cursorLine = lines.count - 1
+        cursorColumn = lines[cursorLine].count
+    }
+
+    // MARK: - Editing
+
+    mutating func insert(_ character: Character) {
+        var line = Array(lines[cursorLine])
+        line.insert(character, at: min(cursorColumn, line.count))
+        lines[cursorLine] = String(line)
+        cursorColumn += 1
+    }
+
+    mutating func insertNewline() {
+        let line = Array(lines[cursorLine])
+        let split = min(cursorColumn, line.count)
+        lines[cursorLine] = String(line[..<split])
+        lines.insert(String(line[split...]), at: cursorLine + 1)
+        cursorLine += 1
+        cursorColumn = 0
+    }
+
+    /// Deletes the character before the cursor, joining lines at a line start.
+    mutating func backspace() {
+        if cursorColumn > 0 {
+            var line = Array(lines[cursorLine])
+            line.remove(at: cursorColumn - 1)
+            lines[cursorLine] = String(line)
+            cursorColumn -= 1
+        } else if cursorLine > 0 {
+            let tail = lines.remove(at: cursorLine)
+            cursorLine -= 1
+            cursorColumn = lines[cursorLine].count
+            lines[cursorLine] += tail
+        }
+    }
+
+    // MARK: - Cursor movement
+    //
+    // Each returns whether the cursor actually moved, so the run loop can let an
+    // arrow key fall through to focus navigation at the edges of the text.
+
+    @discardableResult mutating func moveLeft() -> Bool {
+        if cursorColumn > 0 { cursorColumn -= 1; return true }
+        if cursorLine > 0 { cursorLine -= 1; cursorColumn = lines[cursorLine].count; return true }
+        return false
+    }
+
+    @discardableResult mutating func moveRight() -> Bool {
+        if cursorColumn < lines[cursorLine].count { cursorColumn += 1; return true }
+        if cursorLine < lines.count - 1 { cursorLine += 1; cursorColumn = 0; return true }
+        return false
+    }
+
+    @discardableResult mutating func moveUp() -> Bool {
+        guard cursorLine > 0 else { return false }
+        cursorLine -= 1
+        cursorColumn = min(cursorColumn, lines[cursorLine].count)
+        return true
+    }
+
+    @discardableResult mutating func moveDown() -> Bool {
+        guard cursorLine < lines.count - 1 else { return false }
+        cursorLine += 1
+        cursorColumn = min(cursorColumn, lines[cursorLine].count)
+        return true
+    }
+
+    mutating func moveToLineStart() { cursorColumn = 0 }
+    mutating func moveToLineEnd() { cursorColumn = lines[cursorLine].count }
+}

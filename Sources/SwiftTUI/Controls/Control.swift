@@ -146,10 +146,28 @@ class Control: LayerDrawing {
     /// `handleEvent` means a click never submits a field the way return would.
     func activateByClick() {}
 
+    // MARK: - Arrow keys
+
+    /// Whether this control consumes arrow keys itself - a text editor moving its
+    /// cursor - instead of letting them navigate focus. Checked by the run loop.
+    var handlesArrowKeys: Bool { false }
+
+    /// Handles an arrow key when `handlesArrowKeys` is true. Returns whether it
+    /// was consumed; returning false at a boundary (e.g. the cursor is already on
+    /// the last line and moves down) lets focus navigation take over, so the user
+    /// can still arrow out of the control.
+    func handleArrowKey(_ direction: ArrowKeyDirection) -> Bool { false }
+
     // MARK: - Scrolling
 
     func scroll(to position: Position) {
         parent?.scroll(to: position + layer.frame.position)
     }
 
+}
+
+/// A direction for arrow-key handling, shared by focus navigation and controls
+/// that move a cursor.
+enum ArrowKeyDirection {
+    case up, down, left, right
 }
