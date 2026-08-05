@@ -27,6 +27,21 @@ final class MouseParserTests: XCTestCase {
         XCTAssertEqual(feed("65;3;3M"), .event(.scrollDown))
     }
 
+    func testWheelLeftAndRightCarryThePointerPosition() {
+        XCTAssertEqual(feed("66;7;9M"), .event(.scrollLeft(column: 7, line: 9)))
+        XCTAssertEqual(feed("67;7;9M"), .event(.scrollRight(column: 7, line: 9)))
+    }
+
+    func testModifiedWheelKeepsItsDirection() {
+        // Shift (4) and ctrl (16) ride along in the higher bits.
+        XCTAssertEqual(feed("68;3;3M"), .event(.scrollUp))
+        XCTAssertEqual(feed("82;3;3M"), .event(.scrollLeft(column: 3, line: 3)))
+    }
+
+    func testWheelReleaseIsIgnored() {
+        XCTAssertEqual(feed("66;7;9m"), .ignored)
+    }
+
     func testDragIsIgnored() {
         // Bit 5 (32) set with the left button held marks motion.
         XCTAssertEqual(feed("32;4;4M"), .ignored)

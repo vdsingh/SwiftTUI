@@ -12,6 +12,11 @@ struct MouseParser {
         case leftClick(column: Int, line: Int)
         case scrollUp
         case scrollDown
+        /// Sideways wheel movement. Unlike the vertical wheel, which moves the
+        /// global focus, these carry the pointer's 1-based cell position so the
+        /// event can be offered to the control under it.
+        case scrollLeft(column: Int, line: Int)
+        case scrollRight(column: Int, line: Int)
     }
 
     enum Step: Equatable {
@@ -51,10 +56,17 @@ struct MouseParser {
             return .invalid
         }
 
-        // Bit 6 (64) marks a wheel event; its low bit selects the direction.
+        // Bit 6 (64) marks a wheel event; the low two bits select the
+        // direction: 0 up, 1 down, 2 left, 3 right. Higher bits carry modifier
+        // keys, which do not change the direction.
         if code & 0b100_0000 != 0 {
             guard !released else { return .ignored }
-            return .event(code & 1 == 0 ? .scrollUp : .scrollDown)
+            switch code & 0b11 {
+            case 0: return .event(.scrollUp)
+            case 1: return .event(.scrollDown)
+            case 2: return .event(.scrollLeft(column: column, line: line))
+            default: return .event(.scrollRight(column: column, line: line))
+            }
         }
 
         // Bit 5 (32) marks motion (a drag); only a clean left press acts.

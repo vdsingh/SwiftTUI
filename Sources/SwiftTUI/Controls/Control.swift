@@ -138,6 +138,16 @@ class Control: LayerDrawing {
         return clickable ? self : nil
     }
 
+    /// The deepest control containing `point`, clickable or not: the starting
+    /// point for events that bubble up to whichever ancestor wants them.
+    func control(containing point: Position) -> Control {
+        for child in children.reversed() {
+            guard child.layer.frame.contains(point) else { continue }
+            return child.control(containing: point - child.layer.frame.position)
+        }
+        return self
+    }
+
     // MARK: - Mouse activation
 
     /// Performs this control's primary action after it is clicked. The default
@@ -145,6 +155,15 @@ class Control: LayerDrawing {
     /// action, such as buttons, override this. Keeping it separate from
     /// `handleEvent` means a click never submits a field the way return would.
     func activateByClick() {}
+
+    /// Called when the mouse wheel scrolls sideways with the pointer over this
+    /// control; `delta` is -1 for a leftward tick and +1 for a rightward one.
+    /// The default bubbles to the parent, so the nearest interested ancestor of
+    /// the control under the pointer handles it. Returning false leaves the
+    /// event unclaimed, and it is dropped.
+    func handleHorizontalScroll(_ delta: Int) -> Bool {
+        parent?.handleHorizontalScroll(delta) ?? false
+    }
 
     // MARK: - Arrow keys
 

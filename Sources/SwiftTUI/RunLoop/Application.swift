@@ -287,7 +287,21 @@ public class Application {
             moveFocus(.up)
         case .scrollDown:
             moveFocus(.down)
+        case .scrollLeft(let column, let line):
+            deliverHorizontalScroll(-1, column: column, line: line)
+        case .scrollRight(let column, let line):
+            deliverHorizontalScroll(1, column: column, line: line)
         }
+    }
+
+    /// Offers a sideways wheel tick to the control under the pointer, which
+    /// bubbles it up to the nearest ancestor that wants it (see
+    /// `Control.handleHorizontalScroll`). Nothing global happens by default:
+    /// unlike the vertical wheel, sideways movement means nothing to focus.
+    private func deliverHorizontalScroll(_ delta: Int, column: Int, line: Int) {
+        let point = Position(column: Extended(column - 1), line: Extended(line - 1))
+        guard window.layer.frame.contains(point) else { return }
+        _ = control.control(containing: point).handleHorizontalScroll(delta)
     }
 
     func invalidateNode(_ node: Node) {
