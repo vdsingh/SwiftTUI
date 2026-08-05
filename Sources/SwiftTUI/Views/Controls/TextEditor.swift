@@ -163,8 +163,15 @@ public struct TextEditor: View, PrimitiveView {
             case .documentStart: buffer.moveToDocumentStart(); refresh()
             case .documentEnd: buffer.moveToDocumentEnd(); refresh()
             case .deleteWordBackward: buffer.deleteWordBackward(); commit()
+            case .deleteToLineStart: buffer.deleteToLineStart(); commit()
+            case .deleteForward: buffer.deleteForward(); commit()
             }
             return true
+        }
+
+        override func activateByClick(at point: Position) {
+            buffer.moveTo(line: point.line.intValue + scrollTop, column: point.column.intValue + scrollLeft)
+            refresh()
         }
 
         override func handleEvent(_ char: Character) {

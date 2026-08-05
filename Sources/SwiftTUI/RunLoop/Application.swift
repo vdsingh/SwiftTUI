@@ -175,6 +175,8 @@ public class Application {
             stop()
         case "\u{17}": // Ctrl-W: delete the previous word
             deliverCommand(.deleteWordBackward)
+        case "\u{15}": // Ctrl-U (also a Cmd-Delete remap): delete to the line start
+            deliverCommand(.deleteToLineStart)
         default:
             window.firstResponder?.handleEvent(char)
         }
@@ -232,9 +234,10 @@ public class Application {
         case "F": deliverCommand(ctrl ? .documentEnd : .lineEnd)       // End / Ctrl-End
         case "~":
             switch fields.first ?? 0 {
-            case 1, 7: deliverCommand(.lineStart)   // Home
-            case 4, 8: deliverCommand(.lineEnd)     // End
-            default: break                          // e.g. 3 = forward Delete (unsupported)
+            case 1, 7: deliverCommand(.lineStart)      // Home
+            case 3: deliverCommand(.deleteForward)     // forward Delete (fn-⌫)
+            case 4, 8: deliverCommand(.lineEnd)        // End
+            default: break
             }
         default: break
         }
@@ -274,7 +277,7 @@ public class Application {
         case .leftClick(let column, let line):
             // The terminal reports 1-based cells; the control tree is 0-based.
             let point = Position(column: Extended(column - 1), line: Extended(line - 1))
-            guard let target = control.control(at: point) else { return }
+            guard let (target, local) = control.control(at: point) else { return }
             // A clickable-but-not-selectable control (e.g. `.onClick`) fires its
             // action without taking focus, so it never disturbs keyboard navigation.
             if target.selectable, window.firstResponder !== target {
@@ -282,7 +285,7 @@ public class Application {
                 window.firstResponder = target
                 target.becomeFirstResponder()
             }
-            target.activateByClick()
+            target.activateByClick(at: local)
         case .scrollUp:
             moveFocus(.up)
         case .scrollDown:

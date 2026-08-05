@@ -96,6 +96,13 @@ struct EditorBuffer: Equatable {
     mutating func moveToLineStart() { cursorColumn = 0 }
     mutating func moveToLineEnd() { cursorColumn = lines[cursorLine].count }
 
+    /// Puts the cursor at the given position, clamped into the text - how a
+    /// mouse click lands on the nearest character it can.
+    mutating func moveTo(line: Int, column: Int) {
+        cursorLine = min(max(0, line), lines.count - 1)
+        cursorColumn = min(max(0, column), lines[cursorLine].count)
+    }
+
     mutating func moveToDocumentStart() { cursorLine = 0; cursorColumn = 0 }
     mutating func moveToDocumentEnd() {
         cursorLine = lines.count - 1
@@ -143,6 +150,29 @@ struct EditorBuffer: Equatable {
     /// The identifier text and everything on the current line up to the cursor,
     /// which is what completion is computed from.
     var currentLinePrefix: String { String(Array(lines[cursorLine]).prefix(cursorColumn)) }
+
+    /// Deletes from the start of the line to the cursor (Command-Backspace,
+    /// Ctrl-U). At the start of a line it deletes nothing, matching macOS text
+    /// fields rather than readline's whole-line kill.
+    mutating func deleteToLineStart() {
+        guard cursorColumn > 0 else { return }
+        let chars = Array(lines[cursorLine])
+        lines[cursorLine] = String(chars[min(cursorColumn, chars.count)...])
+        cursorColumn = 0
+    }
+
+    /// Deletes the character under the cursor (forward Delete), joining with the
+    /// next line at a line end.
+    mutating func deleteForward() {
+        var chars = Array(lines[cursorLine])
+        if cursorColumn < chars.count {
+            chars.remove(at: cursorColumn)
+            lines[cursorLine] = String(chars)
+        } else if cursorLine < lines.count - 1 {
+            let tail = lines.remove(at: cursorLine + 1)
+            lines[cursorLine] += tail
+        }
+    }
 
     /// Deletes from the cursor back to the start of the word (Option-Backspace).
     mutating func deleteWordBackward() {

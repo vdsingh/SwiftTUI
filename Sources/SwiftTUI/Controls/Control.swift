@@ -124,18 +124,20 @@ class Control: LayerDrawing {
     var clickable: Bool { selectable }
 
     /// The deepest clickable control containing `point`, which is expressed in
-    /// this control's own coordinate space. This mirrors how `Layer.cell(at:)`
-    /// walks the tree to draw, so a click resolves to the same control the user
-    /// sees under the cursor. The last child is visited first because it is drawn
-    /// on top, matching the renderer when controls overlap.
-    func control(at point: Position) -> Control? {
+    /// this control's own coordinate space, along with the point translated into
+    /// the hit control's space (so a text field can put its cursor under the
+    /// click). This mirrors how `Layer.cell(at:)` walks the tree to draw, so a
+    /// click resolves to the same control the user sees under the cursor. The
+    /// last child is visited first because it is drawn on top, matching the
+    /// renderer when controls overlap.
+    func control(at point: Position) -> (control: Control, point: Position)? {
         for child in children.reversed() {
             guard child.layer.frame.contains(point) else { continue }
             if let hit = child.control(at: point - child.layer.frame.position) {
                 return hit
             }
         }
-        return clickable ? self : nil
+        return clickable ? (self, point) : nil
     }
 
     /// The deepest control containing `point`, clickable or not: the starting
@@ -150,11 +152,13 @@ class Control: LayerDrawing {
 
     // MARK: - Mouse activation
 
-    /// Performs this control's primary action after it is clicked. The default
-    /// does nothing, so clicking a text field only places focus; controls with an
-    /// action, such as buttons, override this. Keeping it separate from
-    /// `handleEvent` means a click never submits a field the way return would.
-    func activateByClick() {}
+    /// Performs this control's primary action after it is clicked, with `point`
+    /// in this control's own coordinate space. The default does nothing, so
+    /// clicking a text field only places focus; controls with an action, such as
+    /// buttons, override this, and text controls use `point` to put the cursor
+    /// where the click landed. Keeping it separate from `handleEvent` means a
+    /// click never submits a field the way return would.
+    func activateByClick(at point: Position) {}
 
     /// Called when the mouse wheel scrolls sideways with the pointer over this
     /// control; `delta` is -1 for a leftward tick and +1 for a rightward one.
@@ -203,4 +207,6 @@ enum KeyCommand {
     case lineStart, lineEnd
     case documentStart, documentEnd
     case deleteWordBackward
+    case deleteToLineStart
+    case deleteForward
 }

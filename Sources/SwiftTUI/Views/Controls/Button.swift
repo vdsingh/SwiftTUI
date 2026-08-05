@@ -58,7 +58,7 @@ public struct Button<Label: View>: View, PrimitiveView {
             }
         }
 
-        override func activateByClick() {
+        override func activateByClick(at point: Position) {
             action()
         }
 

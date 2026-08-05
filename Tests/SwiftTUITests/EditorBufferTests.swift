@@ -49,6 +49,66 @@ final class EditorBufferTests: XCTestCase {
         XCTAssertEqual(buffer.cursorColumn, 2)
     }
 
+    func testDeleteToLineStart() {
+        var buffer = EditorBuffer("postgres://localhost/db")
+        buffer.deleteToLineStart()
+        XCTAssertEqual(buffer.text, "")
+        XCTAssertEqual(buffer.cursorColumn, 0)
+    }
+
+    func testDeleteToLineStartFromMidLine() {
+        var buffer = EditorBuffer("host=db name")
+        for _ in 0..<5 { buffer.moveLeft() } // cursor before " name"
+        buffer.deleteToLineStart()
+        XCTAssertEqual(buffer.text, " name")
+        XCTAssertEqual(buffer.cursorColumn, 0)
+    }
+
+    func testDeleteToLineStartAtLineStartDeletesNothing() {
+        var buffer = EditorBuffer("ab\ncd")
+        buffer.moveToLineStart()     // start of "cd"
+        buffer.deleteToLineStart()
+        XCTAssertEqual(buffer.lines, ["ab", "cd"])
+        XCTAssertEqual(buffer.cursorLine, 1)
+        XCTAssertEqual(buffer.cursorColumn, 0)
+    }
+
+    func testDeleteForwardWithinLine() {
+        var buffer = EditorBuffer("abc")
+        buffer.moveToLineStart()
+        buffer.deleteForward()
+        XCTAssertEqual(buffer.text, "bc")
+        XCTAssertEqual(buffer.cursorColumn, 0)
+    }
+
+    func testDeleteForwardAtLineEndJoinsLines() {
+        var buffer = EditorBuffer("ab\ncd")
+        buffer.moveUp()              // clamped to end of "ab"
+        buffer.moveToLineEnd()
+        buffer.deleteForward()
+        XCTAssertEqual(buffer.lines, ["abcd"])
+        XCTAssertEqual(buffer.cursorColumn, 2)
+    }
+
+    func testDeleteForwardAtTheVeryEndDeletesNothing() {
+        var buffer = EditorBuffer("ab")
+        buffer.deleteForward()
+        XCTAssertEqual(buffer.text, "ab")
+    }
+
+    func testMoveToClampsIntoTheText() {
+        var buffer = EditorBuffer("ab\ncd")
+        buffer.moveTo(line: 0, column: 1)
+        XCTAssertEqual(buffer.cursorLine, 0)
+        XCTAssertEqual(buffer.cursorColumn, 1)
+        buffer.moveTo(line: 9, column: 9)
+        XCTAssertEqual(buffer.cursorLine, 1)
+        XCTAssertEqual(buffer.cursorColumn, 2)
+        buffer.moveTo(line: -1, column: -1)
+        XCTAssertEqual(buffer.cursorLine, 0)
+        XCTAssertEqual(buffer.cursorColumn, 0)
+    }
+
     func testMovementReturnsWhetherItMovedAtBoundaries() {
         var buffer = EditorBuffer("a\nbb")
         // cursor at end of "bb"

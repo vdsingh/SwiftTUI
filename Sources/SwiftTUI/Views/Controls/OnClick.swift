@@ -58,7 +58,7 @@ struct OnClick<Content: View>: View, PrimitiveView {
         override var selectable: Bool { false }
         override var clickable: Bool { true }
 
-        override func activateByClick() {
+        override func activateByClick(at point: Position) {
             action()
         }
     }
