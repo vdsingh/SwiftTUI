@@ -42,6 +42,20 @@ public struct Text: View, PrimitiveView {
         setupEnvironmentProperties(node: node)
         node.view = self
         let control = node.control as! TextControl
+        // Invalidate only when something visible changed: every view update
+        // passes through here for every text on screen, and invalidating them
+        // all makes any state change repaint the whole screen.
+        var changed = control.text != text
+            || control.foregroundColor != foregroundColor
+            || control.bold != bold
+            || control.italic != italic
+            || control.underline != underline
+            || control.strikethrough != strikethrough
+        if #available(macOS 12, *) {
+            changed = changed || control.attributedText != attributedText
+        } else {
+            changed = changed || control._attributedText != nil || _attributedText != nil
+        }
         control.text = text
         control._attributedText = _attributedText
         control.foregroundColor = foregroundColor
@@ -49,7 +63,9 @@ public struct Text: View, PrimitiveView {
         control.italic = italic
         control.underline = underline
         control.strikethrough = strikethrough
-        control.layer.invalidate()
+        if changed {
+            control.layer.invalidate()
+        }
     }
     
     private class TextControl: Control {

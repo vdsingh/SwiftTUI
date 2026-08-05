@@ -18,6 +18,11 @@ class Renderer {
 
     private var currentAttributes = CellAttributes()
 
+    /// Escape sequences and characters for the frame being drawn. Emitting a
+    /// frame as one write instead of a syscall per cell is what makes a
+    /// full-screen repaint cheap.
+    private var buffer = ""
+
     weak var application: Application?
 
     init(layer: Layer) {
@@ -32,6 +37,12 @@ class Renderer {
             draw(rect: invalidated)
             layer.invalidated = nil
         }
+    }
+
+    private func flush() {
+        guard !buffer.isEmpty else { return }
+        writeToTerminal(buffer)
+        buffer = ""
     }
 
     func setCache() {
@@ -54,11 +65,11 @@ class Renderer {
                 }
             }
         }
+        flush()
     }
 
     func stop() {
-        write(EscapeSequence.disableAlternateBuffer)
-        write(EscapeSequence.showCursor)
+        writeToTerminal(EscapeSequence.disableAlternateBuffer + EscapeSequence.showCursor)
     }
 
     private func drawPixel(_ cell: Cell, at position: Position) {
@@ -68,57 +79,60 @@ class Renderer {
         if cache[position.line.intValue][position.column.intValue] != cell {
             cache[position.line.intValue][position.column.intValue] = cell
             if self.currentPosition != position {
-                write(EscapeSequence.moveTo(position))
+                buffer += EscapeSequence.moveTo(position)
                 self.currentPosition = position
             }
             if self.currentForegroundColor != cell.foregroundColor {
-                write(cell.foregroundColor.foregroundEscapeSequence)
+                buffer += cell.foregroundColor.foregroundEscapeSequence
                 self.currentForegroundColor = cell.foregroundColor
             }
             let backgroundColor = cell.backgroundColor ?? .default
             if self.currentBackgroundColor != backgroundColor {
-                write(backgroundColor.backgroundEscapeSequence)
+                buffer += backgroundColor.backgroundEscapeSequence
                 self.currentBackgroundColor = backgroundColor
             }
             self.updateAttributes(cell.attributes)
-            write(String(cell.char))
+            buffer.append(cell.char)
             self.currentPosition.column += 1
         }
     }
 
     private func setup() {
-        write(EscapeSequence.enableAlternateBuffer)
-        write(EscapeSequence.clearScreen)
-        write(EscapeSequence.moveTo(currentPosition))
-        write(EscapeSequence.hideCursor)
+        writeToTerminal(
+            EscapeSequence.enableAlternateBuffer + EscapeSequence.clearScreen
+                + EscapeSequence.moveTo(currentPosition) + EscapeSequence.hideCursor
+        )
     }
 
     private func updateAttributes(_ attributes: CellAttributes) {
         if currentAttributes.bold != attributes.bold {
-            if attributes.bold { write(EscapeSequence.enableBold) }
-            else { write(EscapeSequence.disableBold) }
+            buffer += attributes.bold ? EscapeSequence.enableBold : EscapeSequence.disableBold
         }
         if currentAttributes.italic != attributes.italic {
-            if attributes.italic { write(EscapeSequence.enableItalic) }
-            else { write(EscapeSequence.disableItalic) }
+            buffer += attributes.italic ? EscapeSequence.enableItalic : EscapeSequence.disableItalic
         }
         if currentAttributes.underline != attributes.underline {
-            if attributes.underline { write(EscapeSequence.enableUnderline) }
-            else { write(EscapeSequence.disableUnderline) }
+            buffer += attributes.underline ? EscapeSequence.enableUnderline : EscapeSequence.disableUnderline
         }
         if currentAttributes.strikethrough != attributes.strikethrough {
-            if attributes.strikethrough { write(EscapeSequence.enableStrikethrough) }
-            else { write(EscapeSequence.disableStrikethrough) }
+            buffer += attributes.strikethrough ? EscapeSequence.enableStrikethrough : EscapeSequence.disableStrikethrough
         }
         if currentAttributes.inverted != attributes.inverted {
-            if attributes.inverted { write(EscapeSequence.enableInverted) }
-            else { write(EscapeSequence.disableInverted) }
+            buffer += attributes.inverted ? EscapeSequence.enableInverted : EscapeSequence.disableInverted
         }
         currentAttributes = attributes
     }
 
 }
 
-private func write(_ str: String) {
-    str.withCString { _ = write(STDOUT_FILENO, $0, strlen($0)) }
+private func writeToTerminal(_ str: String) {
+    let bytes = Array(str.utf8)
+    var offset = 0
+    bytes.withUnsafeBufferPointer { pointer in
+        while offset < pointer.count {
+            let written = write(STDOUT_FILENO, pointer.baseAddress! + offset, pointer.count - offset)
+            if written <= 0 { return }
+            offset += written
+        }
+    }
 }

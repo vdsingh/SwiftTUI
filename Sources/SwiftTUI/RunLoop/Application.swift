@@ -305,7 +305,13 @@ public class Application {
     }
 
     func invalidateNode(_ node: Node) {
-        invalidatedNodes.append(node)
+        // A node invalidated many times in one queue drain (every @Published
+        // write re-invalidates its observers) must still update only once:
+        // node updates rebuild whole subtrees, so duplicates multiply the
+        // cost of a burst of state changes by the burst's length.
+        if !invalidatedNodes.contains(where: { $0 === node }) {
+            invalidatedNodes.append(node)
+        }
         scheduleUpdate()
     }
 
@@ -319,13 +325,56 @@ public class Application {
     private func update() {
         updateScheduled = false
 
+        // A pass with no invalid nodes and no dirty layer would lay out and
+        // draw nothing; skip the layout walk entirely.
+        if invalidatedNodes.isEmpty && window.layer.invalidated == nil {
+            return
+        }
+
+        let start = ProcessInfo.processInfo.systemUptime
+        let invalidatedCount = invalidatedNodes.count
         for node in invalidatedNodes {
+            // Updating a node re-evaluates its whole subtree, so a node whose
+            // ancestor is also due for update would only be rebuilt twice.
+            guard !hasInvalidatedAncestor(node) else { continue }
             node.update(using: node.view)
         }
         invalidatedNodes = []
+        let updated = ProcessInfo.processInfo.systemUptime
 
         control.layout(size: window.layer.frame.size)
+        let laidOut = ProcessInfo.processInfo.systemUptime
+
+        let dirty = window.layer.invalidated.map { "\($0.minColumn.intValue),\($0.minLine.intValue) \($0.size.width.intValue)x\($0.size.height.intValue)" } ?? "none"
         renderer.update()
+        let drawn = ProcessInfo.processInfo.systemUptime
+        perfLog(update: updated - start, layout: laidOut - updated, draw: drawn - laidOut, nodes: invalidatedCount, dirty: dirty)
+    }
+
+    private func hasInvalidatedAncestor(_ node: Node) -> Bool {
+        var ancestor = node.parent
+        while let current = ancestor {
+            if invalidatedNodes.contains(where: { $0 === current }) { return true }
+            ancestor = current.parent
+        }
+        return false
+    }
+
+    /// Appends per-frame phase timings to the file named by SWIFTTUI_PERF_LOG.
+    /// Diagnostic only: a no-op unless the environment variable is set.
+    private func perfLog(update: TimeInterval, layout: TimeInterval, draw: TimeInterval, nodes: Int, dirty: String) {
+        guard let path = ProcessInfo.processInfo.environment["SWIFTTUI_PERF_LOG"] else { return }
+        let line = String(
+            format: "update %.1fms layout %.1fms draw %.1fms nodes %d dirty %@\n",
+            update * 1000, layout * 1000, draw * 1000, nodes, dirty
+        )
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+        }
     }
 
     private func handleWindowSizeChange() {
