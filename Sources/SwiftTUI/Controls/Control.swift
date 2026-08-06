@@ -209,4 +209,5 @@ enum KeyCommand {
     case deleteWordBackward
     case deleteToLineStart
     case deleteForward
+    case toggleComment
 }

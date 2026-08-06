@@ -177,6 +177,8 @@ public class Application {
             deliverCommand(.deleteWordBackward)
         case "\u{15}": // Ctrl-U (also a Cmd-Delete remap): delete to the line start
             deliverCommand(.deleteToLineStart)
+        case "\u{1f}": // Ctrl-/ (also a Cmd-/ remap): toggle a line comment
+            deliverCommand(.toggleComment)
         default:
             window.firstResponder?.handleEvent(char)
         }

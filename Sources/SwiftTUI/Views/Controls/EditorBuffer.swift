@@ -19,6 +19,12 @@ struct EditorBuffer: Equatable {
     /// The whole document as one string, lines joined by newlines.
     var text: String { lines.joined(separator: "\n") }
 
+    /// The cursor as a `Character` offset into `text`, counting the newline at
+    /// the end of each full line before the cursor's line.
+    var cursorOffset: Int {
+        lines[..<cursorLine].reduce(0) { $0 + $1.count + 1 } + cursorColumn
+    }
+
     var isEmpty: Bool { lines.count == 1 && lines[0].isEmpty }
 
     /// Replaces all text and puts the cursor at the very end. Used when text is
@@ -171,6 +177,30 @@ struct EditorBuffer: Equatable {
         } else if cursorLine < lines.count - 1 {
             let tail = lines.remove(at: cursorLine + 1)
             lines[cursorLine] += tail
+        }
+    }
+
+    /// Toggles a line comment on the cursor's line (Ctrl-/, Cmd-/). Inserts
+    /// `prefix` at the line's first non-whitespace column; when the line already
+    /// starts with the prefix's bare marker, removes it plus one trailing space.
+    /// The cursor keeps its place in the text it was on.
+    mutating func toggleLineComment(prefix: String) {
+        let marker = Array(prefix.trimmingCharacters(in: .whitespaces))
+        guard !marker.isEmpty else { return }
+        var chars = Array(lines[cursorLine])
+        var indent = 0
+        while indent < chars.count, chars[indent].isWhitespace { indent += 1 }
+
+        if chars.count >= indent + marker.count, Array(chars[indent ..< indent + marker.count]) == marker {
+            var removed = marker.count
+            if chars.count > indent + removed, chars[indent + removed] == " " { removed += 1 }
+            chars.removeSubrange(indent ..< indent + removed)
+            lines[cursorLine] = String(chars)
+            if cursorColumn > indent { cursorColumn = max(indent, cursorColumn - removed) }
+        } else {
+            chars.insert(contentsOf: prefix, at: indent)
+            lines[cursorLine] = String(chars)
+            if cursorColumn >= indent { cursorColumn += prefix.count }
         }
     }
 

@@ -192,4 +192,49 @@ final class EditorBufferTests: XCTestCase {
         XCTAssertEqual(buffer.cursorLine, 2)
         XCTAssertEqual(buffer.cursorColumn, 5)
     }
+
+    func testCursorOffsetCountsNewlines() {
+        var buffer = EditorBuffer("one\ntwo\nthree")
+        XCTAssertEqual(buffer.cursorOffset, 13)      // end of text
+        buffer.moveToDocumentStart()
+        XCTAssertEqual(buffer.cursorOffset, 0)
+        buffer.moveDown()                            // line 1, column 0
+        XCTAssertEqual(buffer.cursorOffset, 4)
+        buffer.moveToLineEnd()                       // after "two"
+        XCTAssertEqual(buffer.cursorOffset, 7)
+    }
+
+    func testCursorOffsetOnEmptyBuffer() {
+        let buffer = EditorBuffer("")
+        XCTAssertEqual(buffer.cursorOffset, 0)
+    }
+
+    func testToggleLineCommentAddsAndRemoves() {
+        var buffer = EditorBuffer("select 1")
+        buffer.toggleLineComment(prefix: "-- ")
+        XCTAssertEqual(buffer.text, "-- select 1")
+        XCTAssertEqual(buffer.cursorColumn, 11)      // cursor stays after "1"
+        buffer.toggleLineComment(prefix: "-- ")
+        XCTAssertEqual(buffer.text, "select 1")
+        XCTAssertEqual(buffer.cursorColumn, 8)
+    }
+
+    func testToggleLineCommentRespectsIndentation() {
+        var buffer = EditorBuffer("  where x = 1")
+        buffer.toggleLineComment(prefix: "-- ")
+        XCTAssertEqual(buffer.text, "  -- where x = 1")
+    }
+
+    func testToggleLineCommentRemovesBareMarker() {
+        var buffer = EditorBuffer("--select 1")   // no space after the marker
+        buffer.toggleLineComment(prefix: "-- ")
+        XCTAssertEqual(buffer.text, "select 1")
+    }
+
+    func testToggleLineCommentOnlyTouchesTheCursorLine() {
+        var buffer = EditorBuffer("select 1\nselect 2")
+        buffer.moveUp()
+        buffer.toggleLineComment(prefix: "-- ")
+        XCTAssertEqual(buffer.text, "-- select 1\nselect 2")
+    }
 }

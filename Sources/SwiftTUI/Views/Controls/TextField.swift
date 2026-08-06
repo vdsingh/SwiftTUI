@@ -104,6 +104,7 @@ public struct TextField: View, PrimitiveView {
             case .deleteWordBackward: buffer.deleteWordBackward()
             case .deleteToLineStart: buffer.deleteToLineStart()
             case .deleteForward: buffer.deleteForward()
+            case .toggleComment: return false // a single-line field has no comments
             }
             refresh()
             return true

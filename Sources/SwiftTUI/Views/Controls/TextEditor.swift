@@ -12,6 +12,12 @@ public final class EditorDocument {
     var apply: ((String) -> Void)?
     /// Wired by the editor control so `complete(with:)` can replace the current word.
     var insertCompletion: ((String) -> Void)?
+    /// Wired by the editor control so `cursorOffset` can read the live cursor.
+    var readCursorOffset: (() -> Int)?
+
+    /// The cursor as a `Character` offset into `text`. Falls back to the end of
+    /// the text when no editor control is attached.
+    public var cursorOffset: Int { readCursorOffset?() ?? text.count }
 
     public init(text: String = "") {
         self.text = text
@@ -35,6 +41,19 @@ public enum TextEditorMenuKey {
     case up, down, accept, dismiss
 }
 
+/// A colored range of the editor's text, in `Character` offsets into the whole
+/// text. Produced by an app-supplied `highlight` closure to color syntax;
+/// characters outside every span keep the default foreground.
+public struct TextEditorHighlight {
+    public let range: Range<Int>
+    public let color: Color
+
+    public init(range: Range<Int>, color: Color) {
+        self.range = range
+        self.color = color
+    }
+}
+
 /// A multi-line, editable text area with a movable cursor. Arrow keys move the
 /// cursor (falling through to focus navigation at the edges), Return inserts a
 /// newline, and Control-R runs the `onRun` action. Ctrl-A / Ctrl-E jump to the
@@ -42,6 +61,8 @@ public enum TextEditorMenuKey {
 public struct TextEditor: View, PrimitiveView {
     let document: EditorDocument
     let placeholder: String?
+    let commentPrefix: String?
+    let highlight: ((String) -> [TextEditorHighlight])?
     let onRun: () -> Void
     let onChange: (String) -> Void
     let menuKey: (TextEditorMenuKey) -> Bool
@@ -51,12 +72,16 @@ public struct TextEditor: View, PrimitiveView {
     public init(
         document: EditorDocument,
         placeholder: String? = nil,
+        commentPrefix: String? = nil,
+        highlight: ((String) -> [TextEditorHighlight])? = nil,
         onRun: @escaping () -> Void = {},
         onChange: @escaping (String) -> Void = { _ in },
         menuKey: @escaping (TextEditorMenuKey) -> Bool = { _ in false }
     ) {
         self.document = document
         self.placeholder = placeholder
+        self.commentPrefix = commentPrefix
+        self.highlight = highlight
         self.onRun = onRun
         self.onChange = onChange
         self.menuKey = menuKey
@@ -70,6 +95,8 @@ public struct TextEditor: View, PrimitiveView {
             document: document,
             placeholder: placeholder ?? "",
             placeholderColor: placeholderColor,
+            commentPrefix: commentPrefix,
+            highlight: highlight,
             onRun: onRun,
             onChange: onChange,
             menuKey: menuKey
@@ -80,6 +107,8 @@ public struct TextEditor: View, PrimitiveView {
         setupEnvironmentProperties(node: node)
         node.view = self
         let control = node.control as! TextEditorControl
+        control.commentPrefix = commentPrefix
+        control.highlight = highlight
         control.onRun = onRun
         control.onChange = onChange
         control.menuKey = menuKey
@@ -91,31 +120,44 @@ public struct TextEditor: View, PrimitiveView {
         var buffer: EditorBuffer
         var placeholder: String
         var placeholderColor: Color
+        var commentPrefix: String?
+        var highlight: ((String) -> [TextEditorHighlight])?
         var onRun: () -> Void
         var onChange: (String) -> Void
         var menuKey: (TextEditorMenuKey) -> Bool
 
         private var scrollTop = 0
         private var scrollLeft = 0
+        /// Per-character foreground colors matching `buffer.lines`, recomputed
+        /// after every text change so `cell(at:)` is a plain lookup.
+        private var lineColors: [[Color?]] = []
 
-        init(document: EditorDocument, placeholder: String, placeholderColor: Color, onRun: @escaping () -> Void, onChange: @escaping (String) -> Void, menuKey: @escaping (TextEditorMenuKey) -> Bool) {
+        init(document: EditorDocument, placeholder: String, placeholderColor: Color, commentPrefix: String?, highlight: ((String) -> [TextEditorHighlight])?, onRun: @escaping () -> Void, onChange: @escaping (String) -> Void, menuKey: @escaping (TextEditorMenuKey) -> Bool) {
             self.document = document
             self.buffer = EditorBuffer(document.text)
             self.placeholder = placeholder
             self.placeholderColor = placeholderColor
+            self.commentPrefix = commentPrefix
+            self.highlight = highlight
             self.onRun = onRun
             self.onChange = onChange
             self.menuKey = menuKey
             super.init()
+            recomputeHighlight()
             document.apply = { [weak self] text in
                 guard let self else { return }
                 self.buffer.setText(text)
+                self.recomputeHighlight()
                 self.refresh()
             }
             document.insertCompletion = { [weak self] replacement in
                 guard let self else { return }
                 self.buffer.replaceCurrentWord(with: replacement)
                 self.commit()
+            }
+            document.readCursorOffset = { [weak self] in
+                guard let self else { return 0 }
+                return self.buffer.cursorOffset
             }
         }
 
@@ -165,6 +207,9 @@ public struct TextEditor: View, PrimitiveView {
             case .deleteWordBackward: buffer.deleteWordBackward(); commit()
             case .deleteToLineStart: buffer.deleteToLineStart(); commit()
             case .deleteForward: buffer.deleteForward(); commit()
+            case .toggleComment:
+                guard let commentPrefix else { return false }
+                buffer.toggleLineComment(prefix: commentPrefix); commit()
             }
             return true
         }
@@ -200,7 +245,30 @@ public struct TextEditor: View, PrimitiveView {
         /// After an edit: publish the text so `onRun`/formatting see it, then repaint.
         private func commit() {
             document.text = buffer.text
+            recomputeHighlight()
             refresh()
+        }
+
+        /// Maps the app's highlight spans (offsets into the whole text) onto the
+        /// per-line color table the renderer reads.
+        private func recomputeHighlight() {
+            guard let highlight else { return }
+            var colors: [[Color?]] = buffer.lines.map { [Color?](repeating: nil, count: $0.count) }
+            let spans = highlight(buffer.text)
+            var lineStart = 0
+            for (row, line) in buffer.lines.enumerated() {
+                let lineEnd = lineStart + line.count
+                for span in spans {
+                    let lower = max(span.range.lowerBound, lineStart)
+                    let upper = min(span.range.upperBound, lineEnd)
+                    guard lower < upper else { continue }
+                    for column in (lower - lineStart) ..< (upper - lineStart) {
+                        colors[row][column] = span.color
+                    }
+                }
+                lineStart = lineEnd + 1 // the newline joining this line to the next
+            }
+            lineColors = colors
         }
 
         /// After a cursor move or external set: keep the cursor on screen, tell the
@@ -246,7 +314,9 @@ public struct TextEditor: View, PrimitiveView {
             let characters = Array(buffer.lines[row])
             let onCursor = isFirstResponder && row == buffer.cursorLine && column == buffer.cursorColumn
             if column >= 0, column < characters.count {
-                return Cell(char: characters[column], attributes: CellAttributes(underline: onCursor))
+                let color = row < lineColors.count && column < lineColors[row].count
+                    ? lineColors[row][column] : nil
+                return Cell(char: characters[column], foregroundColor: color ?? .default, attributes: CellAttributes(underline: onCursor))
             }
             return Cell(char: " ", attributes: CellAttributes(underline: onCursor))
         }
